@@ -32,10 +32,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Require a pushed tag merged to main and a draft release
+      - name: Require a pushed tag merged to main
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
         run: |
           set -eu
@@ -48,11 +46,6 @@ jobs:
             echo "Tag ${TAG} is not on main."
             exit 1
           fi
-          is_draft="$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)"
-          if [ "$is_draft" != "true" ]; then
-            echo "The target release must exist as a draft."
-            exit 1
-          fi
       - name: Check out the tagged commit
         env:
           TAG: ${{ inputs.tag }}
@@ -63,8 +56,28 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # Draft releases are only visible to tokens with write access, so this check
+  # runs in its own job that does not check out or execute repository code.
+  require-draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require a draft release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          is_draft="$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft || true)"
+          if [ "$is_draft" != "true" ]; then
+            echo "Create a draft release for ${TAG} first (see RELEASING.md)."
+            exit 1
+          fi
+
   build:
-    needs: validate
+    needs: [validate, require-draft]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
