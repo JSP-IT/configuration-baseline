@@ -1,0 +1,16 @@
+schema_version: 1
+allow_unexpected: false
+rules:
+  - path: /service/host
+    type: equals
+    value: 0.0.0.0
+  - path: /service/port
+    type: equals
+    value: 8443
+  - path: /tls/enabled
+    type: equals
+    value: true
+  - path: /auth/api_token
+    type: exists
+  - path: /debug
+    type: absent
