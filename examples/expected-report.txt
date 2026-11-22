@@ -1,0 +1,5 @@
+Configuration drift detected.
+UNEXPECTED /debug
+UNEXPECTED /service/experimental_flag
+MODIFIED /service/port
+Summary: 0 missing, 2 unexpected, 1 modified (3 total)

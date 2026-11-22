@@ -1,0 +1,113 @@
+name: Release binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag for a commit already merged to main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Require a merged tag and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${TAG}^{commit}" origin/main
+          is_draft="$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)"
+          if [ "$is_draft" != "true" ]; then
+            echo "The target release must exist as a draft."
+            exit 1
+          fi
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          mkdir -p dist
+          name="config-baseline_${TAG}_${GOOS}_${GOARCH}"
+          binary="config-baseline"
+          if [ "$GOOS" = "windows" ]; then
+            binary="${binary}.exe"
+          fi
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${TAG}" -o "dist/${binary}" ./cmd/config-baseline
+          if [ "$GOOS" = "windows" ]; then
+            (cd dist && zip "${name}.zip" "$binary")
+          else
+            tar -C dist -czf "dist/${name}.tar.gz" "$binary"
+          fi
+          rm "dist/${binary}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create checksums and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+          cd dist
+          sha256sum *.tar.gz *.zip | sort -k2 > checksums.txt
+          is_draft="$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)"
+          if [ "$is_draft" != "true" ]; then
+            echo "Refusing to upload assets to a published release."
+            exit 1
+          fi
+          gh release upload "$TAG" --repo "$GH_REPO" --clobber *.tar.gz *.zip checksums.txt
