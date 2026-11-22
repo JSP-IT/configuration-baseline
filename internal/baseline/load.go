@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -198,15 +197,32 @@ func decodeJSONValue(decoder *json.Decoder) (any, error) {
 
 func decodeYAML(data []byte) (any, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	var value any
-	if err := decoder.Decode(&value); err != nil {
+	var node yaml.Node
+	if err := decoder.Decode(&node); err != nil {
 		return nil, err
 	}
-	var extra any
+	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, errors.New("multiple YAML documents are not supported")
 	}
+	keepTimestampsAsText(&node)
+	var value any
+	if err := node.Decode(&value); err != nil {
+		return nil, err
+	}
 	return normalizeYAML(value)
+}
+
+// keepTimestampsAsText makes YAML timestamps compare as their literal text,
+// so that an unquoted YAML date such as 2024-01-01 equals the JSON string
+// "2024-01-01" instead of being reformatted as a time value.
+func keepTimestampsAsText(node *yaml.Node) {
+	if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!timestamp" {
+		node.Tag = "!!str"
+	}
+	for _, child := range node.Content {
+		keepTimestampsAsText(child)
+	}
 }
 
 func normalizeYAML(value any) (any, error) {
@@ -255,8 +271,6 @@ func normalizeYAML(value any) (any, error) {
 			return nil, errors.New("non-finite numbers are not supported")
 		}
 		return value, nil
-	case time.Time:
-		return value.Format(time.RFC3339Nano), nil
 	default:
 		return value, nil
 	}

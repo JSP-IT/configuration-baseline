@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strconv"
+	"unicode"
 
 	"github.com/JSP-IT/configuration-baseline/internal/baseline"
 )
@@ -27,6 +30,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: config-baseline -baseline FILE -config FILE [-format text|json]")
+		fmt.Fprintln(stderr, "       config-baseline -version")
 		fmt.Fprintln(stderr, "\nCompare a configuration with an approved baseline without modifying either file.")
 		flags.PrintDefaults()
 	}
@@ -42,7 +46,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if *showVersion {
-		fmt.Fprintf(stdout, "config-baseline %s\n", version)
+		fmt.Fprintf(stdout, "config-baseline %s\n", versionString())
 		return 0
 	}
 	if *baselinePath == "" || *configPath == "" {
@@ -90,11 +94,7 @@ func writeTextReport(writer io.Writer, report baseline.Report) {
 	} else {
 		fmt.Fprintln(writer, "Configuration drift detected.")
 		for _, finding := range report.Findings {
-			path := finding.Path
-			if path == "" {
-				path = "/"
-			}
-			fmt.Fprintf(writer, "%s %s\n", finding.Status, path)
+			fmt.Fprintf(writer, "%s %s\n", finding.Status, displayPath(finding.Path))
 		}
 	}
 	fmt.Fprintf(
@@ -105,4 +105,31 @@ func writeTextReport(writer io.Writer, report baseline.Report) {
 		report.Summary.Modified,
 		report.Summary.Total,
 	)
+}
+
+// displayPath formats a JSON Pointer for the line-oriented text report. The
+// whole document (the empty pointer) is shown as "(root)" so it cannot be
+// confused with "/", the pointer to an empty key. Pointers containing control
+// or other non-printable characters are quoted so that crafted keys cannot
+// forge additional report lines.
+func displayPath(path string) string {
+	if path == "" {
+		return "(root)"
+	}
+	for _, r := range path {
+		if !unicode.IsPrint(r) {
+			return strconv.Quote(path)
+		}
+	}
+	return path
+}
+
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
 }

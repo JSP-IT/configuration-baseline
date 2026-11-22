@@ -112,6 +112,71 @@ func TestCompareJSONPointerAndNumericEquivalence(t *testing.T) {
 	}
 }
 
+func TestYAMLTimestampsCompareAsText(t *testing.T) {
+	dir := t.TempDir()
+	baselinePath := filepath.Join(dir, "baseline.json")
+	writeTestFile(t, baselinePath, `{"schema_version":1,"rules":[
+  {"path":"/date","type":"equals","value":"2024-01-01"},
+  {"path":"/stamp","type":"one_of","values":["2024-01-01T10:00:00Z"]}
+]}`)
+	configPath := filepath.Join(dir, "config.yaml")
+	writeTestFile(t, configPath, "date: 2024-01-01\nstamp: 2024-01-01T10:00:00Z\n")
+
+	document, err := LoadBaseline(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report := Compare(document, config); report.Summary.Total != 0 {
+		t.Fatalf("expected YAML timestamps to match JSON strings, got %#v", report.Findings)
+	}
+
+	yamlBaseline := filepath.Join(dir, "baseline.yaml")
+	writeTestFile(t, yamlBaseline, "schema_version: 1\nrules:\n  - path: /date\n    type: equals\n    value: 2024-01-01\n")
+	jsonConfig := filepath.Join(dir, "config.json")
+	writeTestFile(t, jsonConfig, `{"date":"2024-01-01T00:00:00Z"}`)
+	document, err = LoadBaseline(yamlBaseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = LoadConfig(jsonConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report := Compare(document, config); report.Summary.Modified != 1 {
+		t.Fatalf("expected differently written timestamps to differ, got %#v", report.Findings)
+	}
+}
+
+func TestLoadConfigRejectsDuplicateYAMLKeysAndNonStringKeys(t *testing.T) {
+	dir := t.TempDir()
+	duplicate := filepath.Join(dir, "duplicate.yaml")
+	writeTestFile(t, duplicate, "key: one\nkey: two\n")
+	if _, err := LoadConfig(duplicate); err == nil || !strings.Contains(err.Error(), "invalid YAML") {
+		t.Fatalf("LoadConfig error = %v, want duplicate key rejection", err)
+	}
+
+	nonString := filepath.Join(dir, "keys.yaml")
+	writeTestFile(t, nonString, "1: one\n")
+	if _, err := LoadConfig(nonString); err == nil || !strings.Contains(err.Error(), "invalid YAML") {
+		t.Fatalf("LoadConfig error = %v, want non-string key rejection", err)
+	}
+
+	aliases := filepath.Join(dir, "aliases.yaml")
+	writeTestFile(t, aliases, "base: &base\n  port: 8443\n  since: 2024-01-01\ncopy: *base\n")
+	config, err := LoadConfig(aliases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := config.(map[string]any)["copy"].(map[string]any)
+	if copied["since"] != "2024-01-01" {
+		t.Fatalf("aliased timestamp = %#v, want text", copied["since"])
+	}
+}
+
 func TestLoadBaselineRejectsUnsupportedRuleAndDuplicateJSONKeys(t *testing.T) {
 	dir := t.TempDir()
 	badRule := filepath.Join(dir, "unsupported.yaml")
