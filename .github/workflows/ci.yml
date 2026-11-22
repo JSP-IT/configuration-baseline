@@ -19,10 +19,19 @@ jobs:
         go: ["1.26.x", "1.27.x"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
+      - if: runner.os == 'Linux'
+        name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - run: go test ./...
       - run: go vet ./...
       - if: runner.os == 'Linux' && matrix.go == '1.27.x'

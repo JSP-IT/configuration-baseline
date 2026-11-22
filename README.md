@@ -6,17 +6,20 @@ unexpected, and modified settings without changing either input.
 
 ## Installation
 
-Once the first release is published, download the archive for your operating
-system and architecture from
+Download the archive for your operating system and architecture from
 [GitHub Releases](https://github.com/JSP-IT/configuration-baseline/releases).
-Each release archive has a SHA-256 entry in `checksums.txt`.
+Builds are provided for Linux, macOS, and Windows on amd64 and arm64. Verify
+the download against its SHA-256 entry in `checksums.txt`:
 
-After the approved PR is merged, create a draft GitHub Release for the merge
-commit with `RELEASE_NOTES_v0.1.0.md`. Manually run the **Release binaries**
-workflow with that draft's tag. The workflow verifies that the tagged commit
-is already on `main`, builds the archives and checksums, and uploads them to
-the draft without publishing it. Review the assets and publish the release
-manually.
+```powershell
+# Windows PowerShell
+(Get-FileHash .\config-baseline_v0.1.0_windows_amd64.zip -Algorithm SHA256).Hash
+```
+
+```sh
+# Linux and macOS
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+```
 
 With Go installed, install a published version with:
 
@@ -49,7 +52,10 @@ Summary: 0 missing, 2 unexpected, 1 modified (3 total)
 ```
 
 The report includes setting paths and statuses, never the configured or
-expected values. JSON output is available with `-format json`:
+expected values. In the text report, the whole document is shown as `(root)`,
+and paths containing control or other non-printable characters are printed as
+quoted Go strings, so a crafted key cannot add lines to the report. JSON output
+is available with `-format json`:
 
 ```powershell
 config-baseline -baseline baseline.yaml -config current.yaml -format json
@@ -130,6 +136,11 @@ demonstrate that values are not printed.
   path.
 - YAML mapping keys must be strings. Duplicate JSON object keys, duplicate
   YAML keys, non-finite numbers, and multiple YAML documents are rejected.
+- YAML timestamps such as `2024-01-01` are compared as their literal text, so
+  they match the same string in JSON. Dates written differently (for example
+  `2024-01-01` and `2024-01-01T00:00:00Z`) are reported as modified.
+- Numbers are compared by numeric value, so `8443` and `8443.0` are equal,
+  but the quoted string `"8443"` is not a number and does not match them.
 - Values are reported by path and category only; the report does not include
   before/after values.
 
@@ -138,10 +149,15 @@ demonstrate that values are not printed.
 Requires Go 1.26 or newer.
 
 ```powershell
+gofmt -l .
 go test ./...
 go vet ./...
 go test -race ./...
 ```
+
+The example report in `examples/expected-report.txt` is checked by the test
+suite; update it together with this README when the output format changes.
+Maintainers publish releases as described in [RELEASING.md](RELEASING.md).
 
 Project code is MIT-licensed. The project depends on `gopkg.in/yaml.v3` (MIT
 license); Go's standard library is BSD-3-Clause. See [LICENSE](LICENSE) and
